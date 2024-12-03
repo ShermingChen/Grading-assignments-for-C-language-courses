@@ -1,0 +1,69 @@
+import keyring
+from imbox import Imbox
+import datetime
+from openpyxl import Workbook
+import imaplib
+import re
+import html
+import subprocess
+import os
+import codecs
+import unicodedata
+
+from UserInterface import GetUserSettings, GetInputOutputValues, GetImapClientInfo
+from util import WriteInTXT, ExecuteCProgram
+def main():
+    user_settings = GetUserSettings()
+    start_date = datetime.datetime.strptime(user_settings['start_date'], '%Y-%m-%d').date()
+    end_date = datetime.datetime.strptime(user_settings['end_date'], '%Y-%m-%d').date()
+    source_code_dir = user_settings['source_code_dir']
+    output_file = user_settings['output_file']
+    password = user_settings['password']
+    args = GetImapClientInfo()
+    workbook = Workbook()  
+    sheet = workbook.active
+    heading = ['Student ID', 'Name', 'Text', 'Score', 'Remarks']
+    sheet.append(heading)
+    
+    with Imbox('imap.163.com', 'shermingchen@163.com', password, ssl=True) as imbox:
+        imaplib.Commands['ID'] = ('AUTH')
+        
+        imbox.connection._simple_command('ID', '("' + '" "'.join(args) + '")')
+        imbox.connection.select()
+        
+        # available
+        all_inbox_messages = imbox.messages(date__gt=start_date, date__lt=end_date)
+        for uid, message in all_inbox_messages:
+            try:
+                title = message.subject
+                print(title)
+                if not re.match(r'(\d{12})[\s\+\- _—－－－－]*(\S+)', title):
+                    print("cannot deal with")
+                    print(title, '\n')
+                    continue  
+                
+                parts = re.split(r'(\d{12})[+\- _—－－－－]*(\S+)', re.sub(r'[_+\- ]', '', title))
+                s_name = parts[-2]
+                s_id = parts[-3]
+
+                text = message.body['plain'] 
+                if text == ['']:
+                    text = '0'
+                else:
+                    text = repr(text)  
+
+                file_name = os.path.join(source_code_dir, f"{s_id}_{s_name}.txt")
+                text_ = WriteInTXT(text, file_name)
+                
+                input_value, expect_output = GetInputOutputValues()
+                score_, remark_ = ExecuteCProgram(input_value, expect_output, file_name)
+                sheet.append([s_id, s_name, text_, score_, remark_])
+            except:
+                print("irrelevant") 
+
+    workbook.save(output_file)
+
+
+
+if __name__ == "__main__":
+    main()
